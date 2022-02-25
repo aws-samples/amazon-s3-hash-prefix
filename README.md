@@ -27,7 +27,7 @@ make install
 
 `make sample` create sample files containing datetime in a tmp directory
 
-`make sync` synchronize random files with landing bucket
+`make sync` synchronize sample files with landing bucket
 
 `make clean-tmp` cleanup temp directory
 
