@@ -1,0 +1,153 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: S3 hash prefix
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 256
+    Handler: index.handler
+    Runtime: nodejs14.x
+    Architectures: 
+      - arm64
+
+Parameters:
+  NamingPrefix:
+    Type: String
+
+Resources:
+  LandingS3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub '${NamingPrefix}-landing-${AWS::AccountId}'
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:Put
+            Function: !GetAtt HashCopyFunction.Arn
+    DependsOn:
+      - HashCopyFunctionPermission
+
+  OriginS3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub '${NamingPrefix}-origin-${AWS::AccountId}'
+
+  OriginS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref OriginS3Bucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - 's3:GetObject'
+            Effect: Allow
+            Resource:
+              - !Sub 'arn:aws:s3:::${OriginS3Bucket}/*'
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOriginAccessIdentity.S3CanonicalUserId
+              
+  HashCopyFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref HashCopyFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub 'arn:aws:s3:::${NamingPrefix}-landing-${AWS::AccountId}'
+
+  HashCopyFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: hash-copy/
+      FunctionName: HashCopyFunction
+      Role: !GetAtt HashCopyFunctionRole.Arn
+      Environment:
+        Variables:
+          DST_BUCKET: !Ref OriginS3Bucket
+
+  HashCopyFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: HashCopyFunctionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action: 'sts:AssumeRole'
+            Effect: 'Allow'
+            Principal:
+              Service: 'lambda.amazonaws.com'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: S3Policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                Resource:
+                  - !Sub 'arn:aws:s3:::${NamingPrefix}-landing-${AWS::AccountId}/*'            
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                Resource:
+                  - !Sub 'arn:aws:s3:::${NamingPrefix}-origin-${AWS::AccountId}/*'
+
+  PrefixHashingCloudFrontFunction:
+    Type: AWS::CloudFront::Function
+    Properties: 
+      Name: URIPrefixHashing
+      FunctionConfig:
+        Comment: Includes the filename MD5 hash as prefix in the URI
+        Runtime: cloudfront-js-1.0
+      AutoPublish: true
+      FunctionCode: |
+        var crypto = require('crypto');
+        
+        function handler(event) {
+            var request = event.request;
+            var uri = request.uri.split('/');
+            
+            var hash = crypto.createHash('md5');
+            hash.update(uri[uri.length-1]); // hash filename = last uri argument
+            request.uri = '/' + hash.digest('hex') + request.uri;
+        
+            return request;
+        }
+
+  CloudFrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub '${NamingPrefix}-OAI'
+
+  CloudFrontDistribution: 
+    Type: AWS::CloudFront::Distribution
+    DependsOn:
+      - CloudFrontOriginAccessIdentity
+      - PrefixHashingCloudFrontFunction
+    Properties:
+      DistributionConfig:
+        Enabled: 'true'
+        Origins:
+          - Id: 'origin-bucket'
+            DomainName: !Sub '${NamingPrefix}-origin-${AWS::AccountId}.s3.amazonaws.com'
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
+        DefaultCacheBehavior:
+          TargetOriginId: 'origin-bucket'
+          ViewerProtocolPolicy: allow-all
+          ForwardedValues:
+            QueryString: true
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt PrefixHashingCloudFrontFunction.FunctionARN
+
+Outputs:
+  CloudFrontDistribution:
+    Description: Distribution URL
+    Value: !Sub 'https://${CloudFrontDistribution.DomainName}/'
