@@ -7,6 +7,10 @@ ACCOUNT := $$(aws sts get-caller-identity --output text | cut -f 1)
 LANDING_BUCKET := $(NAMING_PREFIX)-landing-$(ACCOUNT)
 ORIGIN_BUCKET := $(NAMING_PREFIX)-origin-$(ACCOUNT)
 
+# list make targets
+.PHONY: list
+list:
+	@LC_ALL=C $(MAKE) -pRrq -f $(lastword $(MAKEFILE_LIST)) : 2>/dev/null | awk -v RS= -F: '/^# File/,/^# Finished Make data base/ {if ($$1 !~ "^[#.]") {print $$1}}' | sort | egrep -v -e '^[^[:alnum:]]' -e '^$@$$'
 
 sample:
 	mkdir -p tmp
