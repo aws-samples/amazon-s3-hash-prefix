@@ -1,6 +1,6 @@
 
 ## Amazon S3 Hash Prefix
-Amazon S3 Hash Prefix helps you scale out read and write operations limits by dynamically injecting an hash prefix for each file stored in S3.
+Amazon S3 Hash Prefix helps you scale out read and write operations limits by dynamically injecting a hash prefix for each file stored in S3.
 
 As per described on [S3 Best practices design patterns](https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html) you can increase the read and write performance by using prefixes to create a parallelization factor. Those prefixes however must provide a high level of entropy in order to offer a large number of partitions as detailed in the blog post [Amazon S3 Performance Tips & Tricks + Seattle S3 Hiring Event](https://aws.amazon.com/blogs/aws/amazon-s3-performance-tips-tricks-seattle-hiring-event/).
 
@@ -38,7 +38,7 @@ make install
 `make uninstall` undeploy the solution
 
 ## Uninstall
-To uninstall the solution you must clean the buckest and then delete stack using [CloudFormation](https://console.aws.amazon.com/cloudformation/) console or executing:
+To uninstall the solution you must clean the buckets and then delete stack using [CloudFormation](https://console.aws.amazon.com/cloudformation/) console or executing:
 ```
 make clean-buckets
 make uninstall
